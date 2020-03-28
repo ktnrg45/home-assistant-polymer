@@ -34,7 +34,7 @@ export class HuiCardOptions extends LitElement {
     return html`
       <slot></slot>
       <ha-card>
-        <div class="options">
+        <div class="options" @dragover="${this._dragOverMove}">
           <div class="primary-actions">
             <mwc-button @click="${this._editCard}"
               >${this.hass!.localize(
@@ -43,6 +43,14 @@ export class HuiCardOptions extends LitElement {
             >
           </div>
           <div class="secondary-actions">
+            <paper-icon-button
+              title="Move card"
+              class="move-cursor"
+              icon="mdi:cursor-move"
+              draggable="true"
+              @dragstart="${this._dragStartMove}"
+              @mousedown="${this._moveSelect}"
+            ></paper-icon-button>
             <paper-icon-button
               title="Move card down"
               class="move-arrow"
@@ -135,6 +143,10 @@ export class HuiCardOptions extends LitElement {
         color: var(--disabled-text-color);
       }
 
+      paper-icon-button.move-cursor {
+        cursor: move;
+      }
+
       paper-menu-button {
         color: var(--secondary-text-color);
         padding: 0;
@@ -201,6 +213,106 @@ export class HuiCardOptions extends LitElement {
 
   private _deleteCard(): void {
     confDeleteCard(this, this.hass!, this.lovelace!, this.path!);
+  }
+
+  private _moveSelect(_event): void {
+    if (!cardMoveHandle.moveActive) {
+      cardMoveHandle.sourceCard = this;
+      document.addEventListener("click", moveHandle, false);
+    } else if (cardMoveHandle.sourceCard != this) {
+      this.style.outline = "2px solid var(--google-red-500)";
+      cardMoveHandle.movePositionCard(this.lovelace!, this.path!);
+    }
+  }
+
+  private _dragStartMove(event): void {
+    event.dataTransfer.effectAllowed = "move";
+    cardMoveHandle.sourceCard = this;
+    this.style.opacity = "0.5";
+    this.addEventListener("dragend", this._dragEndMove, false);
+  }
+
+  private _dragEndMove(_event): void {
+    cardMoveHandle.clear();
+    this.removeEventListener("dragend", this._dragEndMove, false);
+  }
+
+  private _dragOverMove(event): void {
+    event.preventDefault();
+    this.addEventListener("dragleave", this._dragLeaveMove, false);
+    this.addEventListener("drop", this._dropMove, false);
+    if (cardMoveHandle.sourceCard != this) {
+      this.style.outline = "2px solid var(--google-red-500)";
+    }
+  }
+
+  private _dragLeaveMove(_event): void {
+    if (cardMoveHandle.sourceCard != this) {
+      this.removeEventListener("dragleave", this._dragLeaveMove, false);
+      this.removeEventListener("drop", this._dropMove, false);
+      this.style.outline = "";
+      this.style.opacity = "";
+    }
+  }
+
+  private _dropMove(_event): void {
+    if (cardMoveHandle.sourceCard != this) {
+      cardMoveHandle.movePositionCard(this.lovelace!, this.path!);
+    }
+  }
+}
+
+class cardMoveHandler {
+  public sourceCard: HuiCardOptions | undefined;
+  public moveActive: boolean;
+
+  constructor() {
+    this.sourceCard = undefined;
+    this.moveActive = false;
+  }
+
+  public clear(): void {
+    if (this.sourceCard!) {
+      this.sourceCard!.style.opacity = "";
+      this.sourceCard!.style.outline = "";
+    }
+    this.sourceCard = undefined;
+    this.moveActive = false;
+    document.removeEventListener("click", moveHandle, false);
+  }
+
+  public movePositionCard(lovelace, targetPath): void {
+    const sourceIndex = this.sourceCard!.path![1];
+    var newCards = [...lovelace.config.views[targetPath[0]].cards!];
+    const sourceCard = newCards[sourceIndex];
+
+    newCards.splice(sourceIndex, 1);
+    newCards.splice(targetPath[1], 0, sourceCard);
+    const newView = {
+      ...lovelace.config.views[targetPath[0]],
+      cards: newCards,
+    };
+
+    const config = {
+      ...lovelace.config,
+      views: lovelace.config.views.map((origView, index) =>
+        index === targetPath[0] ? newView : origView
+      ),
+    };
+    lovelace.saveConfig(config);
+    this.clear();
+  }
+}
+
+var cardMoveHandle = new cardMoveHandler();
+
+function moveHandle(_event): void {
+  if (cardMoveHandle.moveActive && cardMoveHandle.sourceCard) {
+    cardMoveHandle.clear();
+  } else if (cardMoveHandle.sourceCard) {
+    cardMoveHandle.moveActive = true;
+    cardMoveHandle.sourceCard!.style.opacity = "0.5";
+    cardMoveHandle.sourceCard!.style.outline = "2px solid var(--primary-color)";
   }
 }
 
